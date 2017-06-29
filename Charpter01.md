@@ -1,6 +1,6 @@
-#第一部分 开始旅程
+# 第一部分 开始旅程
 
-树莓派基本是做软件开发的，它自带了一个不错的linux发行版（Raspian）。但有时，我们人需要一个没有操作系统（自行google：操作系统分类）的实时（real-time）操作系统。因此我觉得，做一个教程来利用这Great的硬件的的资源是极好的。这个教程借鉴了[Cambridge University Tutorials](http://www.cl.cam.ac.uk/freshers/raspberrypi/tutorials/)的教程的思路。他们的教程写的很好，但是他们并没有真正建立一个如所说的那样的操作系统。并且，他们用的是汇编而不是C语言。在此，我将用C代替汇编，模仿他们的教程。C语言编译器仅仅是将C代码转成汇编，并把汇编码转成可执行文件。
+树莓派基本是做软件开发的，它自带了一个不错的linux发行版（Raspian）。但有时，我们仍需要一个“没有操作系统”（自行google：操作系统分类）的实时（real-time）操作系统。因此我觉得，做一个教程来利用这Great的硬件资源是极好的。这个教程借鉴了[Cambridge University Tutorials](http://www.cl.cam.ac.uk/freshers/raspberrypi/tutorials/)的教程的思路。他们的教程写的很好，但是他们并没有真正建立一个如所说的那样的操作系统。并且，他们用的是汇编而不是C语言。在此，我将用C代替汇编，模仿他们的教程。C语言编译器仅仅是将C代码转成汇编，并把汇编码转成可执行文件。
 
 >我在此极力推荐去看看剑桥大学的教程（正如上文所提），它们很好。如果你会一点汇编的话，直接去点击上文档链接。这个教程提供和那个相似的体验，但是增加了对其背后过程的理解，而且它使用C语言。
 
@@ -32,7 +32,7 @@ RPi2的架构和派1是不一样的。原来的ARM1176被换成了一块4核的A
 >这段附上原文（基本是直译的）
 >This code uses symbols that the linker can resolve to clear the start of the area where initialised variables starts and ends in order to zero this memory section. It generally sets up a stack pointer, and it always includes a call to _main. Here’s an important note: symbols present in C code get prepended with an underscore in the generation of the assembler version of the code. So where the start of a C program is the main symbol, in assembler we need to refer to it as it’s assembler version which is _main.
 
-##Github
+## Github
 
 所有的代码都可以在这个[Github repo](https://github.com/BrianSidebotham/arm-tutorial-rpi)中找到，所以你可以去把它下载下来，并在学习此教程时，编译和修改它们。首先让我们来看看如何编译最简单的那个。
 
@@ -47,5 +47,53 @@ int main(void)
     }
 
     return 0;
+}
+```
+在part-1/armc-00目录下，有针对于不同版本树莓派的源码编译脚本。总共有三个版本：原版的是名为built.bat/sh；B+有增加的IO连接口，但它仍然是V1的板子，它的文件名是build-rpi-bplus.bat/sh；最后，V2的板子有扩展的IO口以及四核处理器，它的文件名是build-rpi-2.bat/sh。
+
+V1的板子装的是Broadcom BCM2835 (ARM1176)而V2的板子用的是BCM2836
+(ARM Cortex A7).因为处理器的不同，我们使用不同的编译命令。
+
+```
+arm-none-eabi-gcc -O2 -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s arm-test.c
+```
+
+```
+arm-none-eabi-gcc -O2 -mfpu=vfp -mfloat-abi=hard -march=armv7-a -mtune=cortex-a7 arm-test.c
+```
+
+GCC成功地编译了代码（因为这里没有C语言的错误），但连接器会显示如下错误信息：
+
+```
+.../arm-none-eabi/lib/fpu\libc.a(lib_a-exit.o): In function `exit':
+exit.c:(.text.exit+0x2c): undefined reference to `_exit'
+collect2.exe: error: ld returned 1 exit status
+```
+
+在上面的一行命令中，我们调用了C语言编译器、汇编器和链接器。C编译器为我们做了大部分琐碎的任务，使我们的生活更加方便，但是因为我们是嵌入式工程师（不是吗？）我们必须了解编译器、汇编器和链接器在非常底层的环境下如何工作，因为我们一般工作在定制的系统上，我们得熟练地向工具链做出描述。
+
+由错误信息可见，这里有一个` _exit `符号失踪了。这个符号被我们使用的C库引用。实际上它是一个系统调用。它被设计为由操作系统实现。它将在程序终止时被调用。在我们的例子中，我们的程序是我们自己的操作系统，我们的程序是唯一运行的，事实上，我们永远不会退出，所以我们不需要真正担心它。系统调用可以是空白的，只需要提供它们，以便链接器解析符号。C函数库有要求系统调用，有是它们已经被实现为空函数，或是一个固定的功能。你可以看看[newlib documentation on system calls](http://sourceware.org/newlib/libc.html#Stubs)来了解系统调用。Newlib是一个开源的轻量级C函数库。C函数库提供了所有的在biaozC头文件中的C语言功能。比如`stdio.h`, `stlib.h`, `string.h`，等等。
+
+在这一点上，我想提醒的是，标准的Hello World示例不会在没有操作系统的此处工作，并且它确实是一个未被实现的系统调用，因此它不能成为我们的第一个示例。在printf(...)函数的最底端，包括了一个写操作函数——“write” ——这个函数被所有C函数库里需要写入文件的函数调用。对于printf函数，它需要向文件stdout写入。通常来说，一个正在运行stdout的OS产生在屏幕上可见的输出，并且它可以被OS用管道传输给另一个文件系统上的文件。如果没有OS，stdout通常会被打印到一个UART端口上，这样你就可以在你的远程连接的PC屏幕上看到输出量。我们在以后的教程里会考虑如何实现这个。let's move on...
+
+解决链接问题最简单的方法是提供一个最小的退出函数来满足链接器。因为它永远不会被使用，所有我们需要做的是把连接器关掉，让它解决_exit。现在我们可以编译代码的下一个版本了：
+
+## part-1/armc-01
+
+```
+int main(void)
+{
+    while(1)
+    {
+
+    }
+
+    return 0;
+}
+
+void exit(int code)
+{
+    while(1)
+        ;
 }
 ```
