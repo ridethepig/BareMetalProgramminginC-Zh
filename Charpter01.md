@@ -97,3 +97,34 @@ void exit(int code)
         ;
 }
 ```
+
+在exit函数里放置一个无限循环是很重要的。在本来不是被设计为用来编写OS的c lib里(所以是 arm-NONE-eabi-*)，_exit被标记为无返回的函数。我们必须确保它不会返回，否则我们将会得到一个关于它的警告。 _exit函数的原型总是包含一个int型的退出代码。现在再使用相同的生成命令，我们就会得到一个clean build。Yay！（这个不大会翻，比较的传神）但是一个真正的问题出现了。我们需要提供自己的链接脚本和C启动代码，才能提供C lib底层的操作系统。当然，我们可以使用GCC的命令 `-nostartfiles`，就是不使用任何的C语言启动程序，我们也不再需要exit函数了。
+
+## 了解处理器
+
+就像在剑桥大学的那份教程中的那样，我们将复制他们最初点亮led的示例，以便知道我们的代码是否正确运行。
+
+### 树莓派的启动过程
+
+首先，让我们来看一下pi处理器的boot原理。我们应该知道，博通的bcm2385有两个处理器，一个是videocore（TM）GPU：这就是为什么Raspberry Pi能良好运行媒体中心和其他操作系统。这两个处理器共享外围总线，也必须共享一些中断资源。
+
+GPU在复位或开机时开始运行，它包含了读取MMC总线上sd卡的第一个FAT分区的代码。它搜索并加载bootcode.binw文件到内存并执行代码。反过来，bootcode.bin bootloader 在SD卡上搜索一个文件名为start.elf和config.txt文件，设定不同的内核设置。然后再次搜索SD卡，寻找kernel.img文件，然后把它加载到内存的一个特定的地址（0x8000），启动ARM处理器，在那个内存位置执行。GPU现在已经开启并运行，ARM处理器就会运行包含在kernel.img里的代码。start.elf文件包含运行在GPU上的代码来提供OpenGL等的需要。
+
+因此，如果你想要运行自己的代码，你需要首先把它编译为可执行文件，并改名为kernel.img，把它粘到一个FAT格式的sd卡里。这张卡里还要有bootcode.bin和start.elf。最新的RPi firmware可以在[GitHub](https://github.com/raspberrypi/firmware)下载。bootloader可以在[boot sub-directory](https://github.com/raspberrypi/firmware/tree/master/boot)目录下找到。firmware里其余的部分是闭源的二进制多媒体系统驱动。它们没什么用，就不用管他们了。
+
+这意味着当处理器开始运行我们的代码时，它已经启动并运行。时钟源和PLL设置已经决定了，并在被在bootloader中编程，缓解了我们的问题。我们只需要把一个已经运行的核心的设备寄存器弄乱就可以了。我也不是很擅长这种事情，通常我的代码首先会正确的设置时钟和PLL来初始化处理器,但GPU已经为我们设置好了基本的时钟方案。
+
+我们要做的第一件事就是开启GPIO控制器。我们没有可以依赖的驱动因为没有操作系统在运行。然而bootloader所做的只是启动处理器，使其进入工作状态，准备好加载OS。
+
+你需要下载一份[Raspberry-Pi BCM2835 peripherals datahsheet](http://www.raspberrypi.org/wp-content/uploads/2012/02/BCM2835-ARM-Peripherals.pdf) 。通过阅读数据手册，我们可以知道如何控制BCM2835的外设IO设备。我会指导大家如何使用GPIO外设设备——总是会有些gotcha's的。（在下才疏学浅，不知道gotcha's是什么）。
+
+我们在直接写代码之前，最好先来阅读一些关于处理器的基本信息。最重要的是有关虚拟内存的信息。在数据手册的第五页上，我们可以看到一张处理器的IO图。作为嵌入式工程师，我们必须通过IO图来了解处理器的外设的地址，并且在一些情况下，还要知道如何编写连接脚本，比如在有多重地址空间的时候。
+
+![ARM Virtual addresses](http://www.valvers.com/wp-content/uploads/2013/01/arm-c-virtual-addresses.jpg)
+
+VC CPU总线和Broadcom Video Core CPU连在一起。虽然Video Core CPU是从SD卡里引导的，但是会被在kernel.img中代码被调用时，移交给ARM核心处理。所以我们不关心VC CPU总线的地址。
+
+ARM物理地址（ARM Physical addresses）是处理器原来的IO map，因为此时MMU（ARM的Memory Management Unit）没有被启用。如果mmu被启用，我们就需要注意虚拟地址了。
+
+在一个OS的内核运行之前，MMU也也没有运行，因为他还没有被初始化。此时的核心正运行在内核模式。总线上的地址因此会通过它们的ARM物理地址被访问到。从图中我们可以看到，在RPi1中，VC CPU的地址0x7E000000被映射到ARM物理地址0x20000000。这一点很重要！
+
