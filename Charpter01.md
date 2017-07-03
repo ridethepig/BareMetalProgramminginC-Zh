@@ -126,5 +126,20 @@ VC CPU总线和Broadcom Video Core CPU连在一起。虽然Video Core CPU是从S
 
 ARM物理地址（ARM Physical addresses）是处理器原来的IO map，因为此时MMU（ARM的Memory Management Unit）没有被启用。如果mmu被启用，我们就需要注意虚拟地址了。
 
-在一个OS的内核运行之前，MMU也也没有运行，因为他还没有被初始化。此时的核心正运行在内核模式。总线上的地址因此会通过它们的ARM物理地址被访问到。从图中我们可以看到，在RPi1中，VC CPU的地址0x7E000000被映射到ARM物理地址0x20000000。这一点很重要！
+在一个OS的内核运行之前，MMU也没有运行，因为他还没有被初始化。此时的核心正运行在内核模式。总线上的地址因此会通过它们的ARM物理地址被访问到。从图中我们可以看到，在RPi1中，VC CPU的地址0x7E000000被映射到ARM物理地址0x20000000。这一点很重要！
 
+虽然没有任何的文档著名，但是RPi2的ARM IO基地址保被设置带0x3F000000而不是0x20000000。树莓派基金会并没有提供我们需要的完善的文档，事实上，他们的[attitude suggests](http://www.raspberrypi.org/forums/viewtopic.php?f=72&amp;t=98400)认为我们（软件工程师）是一群魔术师，并不需要任何的文档。（//惊！）真是遗憾！如果你是一名论坛的成员，请帮助我们要求提供更多的文档。作为工程师，尤其是工业上，我们决不能接受这样的生产商，所以我们会转向其他的硬件平台。事实上，我使用配备了TI Cortex A8 的Beaglebone Black开发板，它有一份很好的文档。
+
+无论如何，基地址还是可以从uboot的补丁里找到。因为树莓派2使用了BCM2836核心，所以可以搜一下这个版本的uboot，会找到一个[patch for supporting the Raspberry-Pi 2(RPI2的支持补丁)](http://lists.denx.de/pipermail/u-boot/2015-February/204483.html).
+
+再往下看文档，我们会发现关于GPIO外设的部分。(Chapter 6,page 89).
+
+## 运行代码看输出
+
+我们终于可以看到代码在RPi上运行起来了。接下来会继续使用Cambridge tutorials里的第一个例子，就是点亮LED灯的那一个。这就是一个类似于“HELLO,WORLD!”程序的例子。通常,嵌入式开发里的hello,world是点亮一个闪烁的LED灯，这样我们才会知道，处理器是连续运行的.我们待会再处理这件事.
+
+GPIO外设在BCM2835上的基地址是0x7E200000.我们刚刚也知道了,处理器会将它转成物理地址0x20200000 (0x3F200000 for RPI2)这是GPIO寄存器集中度第一个寄存器--GPIO Function Select 0
+
+我们需要设置GPIO来使用IO引脚.[Raspberry-Pi schematic diagrams](http://www.raspberrypi.org/wp-content/uploads/2012/10/Raspberry-Pi-R2.0-Schematics-Issue2.2_027.pdf)中,LED灯被连到了GPIO16上(Sheet 2, B5).这个led在低电平是被触发,这是一个标准的惯例.也就是说,要打开led,我们需要输出一个0--即这个引脚被处理器接到了0V上;要关掉它,就输出1--引脚被接到了VDD上.
+
+不幸的是,缺乏文档还是很普遍,我们并没有RPI2或者B+的原理图.
