@@ -142,4 +142,36 @@ GPIO外设在BCM2835上的基地址是0x7E200000.我们刚刚也知道了,处理
 
 我们需要设置GPIO来使用IO引脚.[Raspberry-Pi schematic diagrams](http://www.raspberrypi.org/wp-content/uploads/2012/10/Raspberry-Pi-R2.0-Schematics-Issue2.2_027.pdf)中,LED灯被连到了GPIO16上(Sheet 2, B5).这个led在低电平是被触发,这是一个标准的惯例.也就是说,要打开led,我们需要输出一个0--即这个引脚被处理器接到了0V上;要关掉它,就输出1--引脚被接到了VDD上.
 
-不幸的是,缺乏文档还是很普遍,我们并没有RPI2或者B+的原理图.
+不幸的是,缺乏文档还是很普遍,我们并没有RPI2或者B+的原理图.GPIO线似乎被重新接过了,就像Florin在评论区里所说的,RPi B+的LED接在了GPIO47上面.我已经在括号里注明了这些事项.
+
+回到处理器手册上来.我们要做的第一件事就是把GPIO pin设置为output模式,也就是要把GPIO16(GPIO47 RPI+)设置为output.
+
+` GPIO Function Select 1 `寄存器的第18至20位控制了GPIO16; ` GPIO Function Select 4 `寄存器的第21至23位控制GPIO47
+
+在C语言里,我们会设置一个指针指向一个寄存器,并用这个指针来向里面写入值.这种指针通常有一个修饰符volatile,这样,编译器就不会做出一些意料之外(可能会出现问题)的操作.(关于这一点,自行google volatile的用法)如果我们不把这个寄存器(也就是那个指针)标记为volatile,那么编译器就可以任意地检查这个寄存器会不会被再次访问到,(在此程序里就不会),所以我们为了无论什么目的写入的数据,不会被程序使用,并且优化器可以随意的丢弃这个写入,以为它没有用.
+
+这种效果是确实需要的,但只是外表上可视的,就是看到GPIO pin的模式的改变.我们通过volatile关键字通知编译器不要把任何关于此变量的事情都当作理所当然,它只需要做好我们通知它做的.
+
+```
+#ifdef RPI2
+    #define GPIO_BASE 0x3F200000UL
+#else
+    #define GPIO_BASE 0x20200000UL
+#endif
+
+volatile unsigned int* gpio_fs1 = (unsigned int*)(GPIO_BASE+0x04);
+volatile unsigned int* gpio_fs4 = (unsigned int*)(GPIO_BASE+0x10);
+```
+
+我们需要向功能选择寄存器里的相关位写入一个1来把GPIO设为output.此处我们需要知道一个事实,这个寄存器会在重置后变成0,所以我们作如下的设置:
+
+```
+#if defined( RPIPLUS ) || defined ( RPI2 )
+    *gpio_fs4 |= (1<<21);
+#else
+    *gpio_fs1 |= (1<<18);
+#endif
+```
+
+这段代码看上去有点乱,但我们以后会去慢慢优化它.现在我们只是想点亮led并且搞清楚它为什么会被点亮.
+
