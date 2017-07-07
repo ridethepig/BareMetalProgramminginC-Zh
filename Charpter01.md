@@ -175,3 +175,134 @@ volatile unsigned int* gpio_fs4 = (unsigned int*)(GPIO_BASE+0x10);
 
 这段代码看上去有点乱,但我们以后会去慢慢优化它.现在我们只是想点亮led并且搞清楚它为什么会被点亮.
 
+ARM GPIO外设进行IO的方式特别的有趣，和其他的处理器不太一样，它有一个SET寄存器和一个CLEAR寄存器。向SET里的任何一位写入1都会使相应的GPIO pin被设置为1(高电平);相应的,向CLEAR里的任何一位写入1都会让相应的GPIO pin 被CLEAR成0(低电平).这样做(把一个寄存器的每一位和一个pin关联在一起,并且可以直接设置pin脚底输出)其实是有原因的,但本教程篇幅所限,恕不详细讲解.
+
+我们需要向CLEAR的1~16为写入1(即把他们的output设为0)来点亮led:
+
+```
+*gpio_clear |= (1<<16);
+```
+
+我们把所学的东西放在了一个小小的例子里,接下来就来看看整个代码并将它们编译运行吧!(终于到了愉快的复制粘贴代码的时间了)
+
+### part-1/armc-02
+
+```
+/* The base address of the GPIO peripheral (ARM Physical Address)
+   GPIO外设的基地址(ARM物理地址) */
+#ifdef RPI2
+    #define GPIO_BASE       0x3F200000UL
+#else
+    #define GPIO_BASE       0x20200000UL
+#endif
+
+#if defined( RPIBPLUS ) || defined( RPI2 )
+    #define LED_GPFSEL      GPIO_GPFSEL4
+    #define LED_GPFBIT      21
+    #define LED_GPSET       GPIO_GPSET1
+    #define LED_GPCLR       GPIO_GPCLR1
+    #define LED_GPIO_BIT    15
+#else
+    #define LED_GPFSEL      GPIO_GPFSEL1
+    #define LED_GPFBIT      18
+    #define LED_GPSET       GPIO_GPSET0
+    #define LED_GPCLR       GPIO_GPCLR0
+    #define LED_GPIO_BIT    16
+#endif
+
+#define GPIO_GPFSEL0    0
+#define GPIO_GPFSEL1    1
+#define GPIO_GPFSEL2    2
+#define GPIO_GPFSEL3    3
+#define GPIO_GPFSEL4    4
+#define GPIO_GPFSEL5    5
+
+#define GPIO_GPSET0     7
+#define GPIO_GPSET1     8
+
+#define GPIO_GPCLR0     10
+#define GPIO_GPCLR1     11
+
+#define GPIO_GPLEV0     13
+#define GPIO_GPLEV1     14
+
+#define GPIO_GPEDS0     16
+#define GPIO_GPEDS1     17
+
+#define GPIO_GPREN0     19
+#define GPIO_GPREN1     20
+
+#define GPIO_GPFEN0     22
+#define GPIO_GPFEN1     23
+
+#define GPIO_GPHEN0     25
+#define GPIO_GPHEN1     26
+
+#define GPIO_GPLEN0     28
+#define GPIO_GPLEN1     29
+
+#define GPIO_GPAREN0    31
+#define GPIO_GPAREN1    32
+
+#define GPIO_GPAFEN0    34
+#define GPIO_GPAFEN1    35
+
+#define GPIO_GPPUD      37
+#define GPIO_GPPUDCLK0  38
+#define GPIO_GPPUDCLK1  39
+
+/** GPIO寄存器设置 */
+volatile unsigned int* gpio;
+
+/** 简单的循环变量 */
+volatile unsigned int tim;
+
+/** Main函数 - 我们不会从这里返回 */
+int main(void)
+{
+    /* 分配GPIO外设的地址 (使用ARM Physical Address) */
+    gpio = (unsigned int*)GPIO_BASE;
+
+    /* Write 1 to the GPIO16 init nibble in the Function Select 1 GPIO
+       peripheral register to enable GPIO16 as an output */
+    gpio[LED_GPFSEL] |= (1 &lt;&lt; LED_GPFBIT);
+
+    /* 不要返回!因为没有可以返回到的地方(无家可归hhh) */
+    while(1)
+    {
+        for(tim = 0; tim &lt; 500000; tim++)
+            ;
+
+        /* Set the LED GPIO pin low ( Turn OK LED on for original Pi, and off
+           for plus models )*/
+        gpio[LED_GPCLR] = (1 &lt;&lt; LED_GPIO_BIT);
+
+        for(tim = 0; tim &lt; 500000; tim++)
+            ;
+
+        /* Set the LED GPIO pin high ( Turn OK LED off for original Pi, and on
+           for plus models )*/
+        gpio[LED_GPSET] = (1 &lt;&lt; LED_GPIO_BIT);
+    }
+}
+```
+
+现在要把编译命令稍微改动一下:
+
+```
+arm-none-eabi-gcc -O2 -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s -nostartfiles armc-2.c -o kernel.elf
+```
+
+链接器给出了一个警告,我们将待会处理它.重点在于链接器帮我们解决了一个问题.下面给出那个被忽略的警告:
+
+```
+.../arm-none-eabi/bin/ld.exe: warning: cannot find entry symbol _start; defaulting to 00008000
+```
+
+我们从编译中可以看出,标准的ELF格式的输出文件是一个被打包好的可执行文件,其中包含了OS可能会需要的信息.但我们只需要机器码,所以用如下命令解压这个文件:
+
+```
+arm-none-eabi-objcopy kernel.elf -O binary kernel.img
+```
+
+### 关于ELF格式的简介
