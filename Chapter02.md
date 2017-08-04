@@ -116,5 +116,254 @@ Disassembly of section .data:
    1008c:   20200000    eorcs   r0, r0, r0
 ```
 
-第一行把PC(program counter)寄存器里的`地址`的值,此处为0x1008c,赋值到r2里.你需要谨记文件被加载到0x8000处,因为几乎所有的ARM设备在此处都是一样的,所以链接器也知道如何处理.在基地址0x8000上加上偏移量0x808c(也就是0x1008c)地址处的值就是0x20200000,即gpio变量初始值(RPi2是0x3F200000).以上就是为什么没有任何明确的初始化也能正常运行的原因分析.Let's go on.
+第一行把PC(program counter)+120 里的`地址`的值,此处为0x1008c,赋值到r2里.你需要谨记文件被加载到0x8000处,因为几乎所有的ARM设备在此处都是一样的,所以链接器也知道如何处理.在基地址0x8000上加上偏移量0x808c(也就是0x1008c)地址处的值就是0x20200000,即gpio变量初始值(RPi2是0x3F200000).以上就是为什么没有任何明确的初始化也能正常运行的原因分析.Let's go on.
+
+可执行映像末尾处的值可以用十六进制编辑器来查看。![Hex Editor View](/img/armc-04-kernel-img-hex-editor.jpg)
+
+下一行却把PC+120里的'地址'放进了r3里，此处的值为0x10090，居然超出了映像文件大小。这个变量的之将会是未定义的。这就是tim variable（我也不知道是什么），它事实上不会被初始化为任何值，直到我们在第73行的一个for循环开始使用它。（如果你了解一些C语言标准的话，肯定就会知道这是个不正确的行为，这事儿过一会再讲）
+
+接下来检查一下我们是否是正确的：
+
+```
+\arm-tutorial-rpi\part-2\armc-04>arm-none-eabi-nm kernel.elf
+
+00010094 A __bss_end__
+00010090 A __bss_start
+00010090 A __bss_start__
+0001008c D __data_start
+00010094 A __end__
+00010094 A _bss_end__
+00010090 A _edata
+00010094 A _end
+00080000 N _stack
+         U _start
+0001008c D gpio
+00008000 T main
+00010090 B tim
+```
+
+很好，我们的猜想和[nm](https://sourceware.org/binutils/docs/binutils/nm.html)（一个gnu工具链里输出目标文件的符号清单的程序）所输出的结果一样。
+
+##模拟
+
+如果你在使用linux，那么你就可以使用可以模拟arm的GDB来调试程序。以下是我运行调试的一些结果，希望对于你的理解有所裨益：
+
+```
+brian@brian-PH67-UD3-B3 ~ $ arm-none-eabi-gdb
+GNU gdb (7.6.50.20131218-0ubuntu1+1) 7.6.50.20131218-cvs
+Copyright (C) 2013 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type "show copying"
+and "show warranty" for details.
+This GDB was configured as "--host=x86_64-linux-gnu --target=arm-none-eabi".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<http://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+<http://www.gnu.org/software/gdb/documentation/>.
+For help, type "help".
+Type "apropos word" to search for commands related to "word".
+(gdb) target sim
+Connected to the simulator.
+(gdb) load kernel.elf
+Loading section .text, size 0x8c vma 0x8000
+Loading section .data, size 0x4 vma 0x1008c
+Start address 0x8000
+Transfer rate: 1152 bits in <1 sec.
+(gdb) file kernel.elf
+Reading symbols from kernel.elf...done.
+(gdb) break main
+Breakpoint 1 at 0x8000: file armc-04.c, line 45.
+(gdb) run
+Starting program: /home/brian/kernel.elf
+
+Breakpoint 1, main () at armc-04.c:45
+45      armc-04.c: No such file or directory.
+(gdb) disassemble
+Dump of assembler code for function main:
+=> 0x00008000 <+0>:     ldr     r2, [pc, #120]  ; 0x8080 <main+128>
+   0x00008004 <+4>:     ldr     r3, [pc, #120]  ; 0x8084 <main+132>
+   0x00008008 <+8>:     ldr     r0, [r2]
+   0x0000800c <+12>:    ldr     r2, [pc, #116]  ; 0x8088 <main+136>
+   0x00008010 <+16>:    ldr     r1, [r0, #4]
+   0x00008014 <+20>:    mov     lr, #0
+   0x00008018 <+24>:    orr     r1, r1, #262144 ; 0x40000
+   0x0000801c <+28>:    str     r1, [r0, #4]
+   0x00008020 <+32>:    mov     r12, #65536     ; 0x10000
+   0x00008024 <+36>:    str     lr, [r3]
+   0x00008028 <+40>:    ldr     r1, [r3]
+   0x0000802c <+44>:    cmp     r1, r2
+   0x00008030 <+48>:    bhi     0x804c <main+76>
+   0x00008034 <+52>:    ldr     r1, [r3]
+   0x00008038 <+56>:    add     r1, r1, #1
+   0x0000803c <+60>:    str     r1, [r3]
+   0x00008040 <+64>:    ldr     r1, [r3]
+   0x00008044 <+68>:    cmp     r1, r2
+   0x00008048 <+72>:    bls     0x8034 <main+52>
+   0x0000804c <+76>:    str     r12, [r0, #40]  ; 0x28
+   0x00008050 <+80>:    str     lr, [r3]
+   0x00008054 <+84>:    ldr     r1, [r3]
+   0x00008058 <+88>:    cmp     r1, r2
+   0x0000805c <+92>:    bhi     0x8078 <main+120>
+   0x00008060 <+96>:    ldr     r1, [r3]
+   0x00008064 <+100>:   add     r1, r1, #1
+   0x00008068 <+104>:   str     r1, [r3]
+   0x0000806c <+108>:   ldr     r1, [r3]
+   0x00008070 <+112>:   cmp     r1, r2
+   0x00008074 <+116>:   bls     0x8060 <main+96>
+   0x00008078 <+120>:   str     r12, [r0, #28]
+   0x0000807c <+124>:   b       0x8024 <main+36>
+   0x00008080 <+128>:   andeq   r0, r1, r12, lsl #1
+   0x00008084 <+132>:   muleq   r1, r0, r0
+   0x00008088 <+136>:   andeq   r10, r7, pc, lsl r1
+End of assembler dump.
+(gdb) stepi
+0x00008004      45      in armc-04.c
+(gdb) info registers
+r0             0x0      0
+r1             0x0      0
+r2             0x1008c  65676
+r3             0x0      0
+sp             0x800    0x800
+lr             0x0      0
+pc             0x8004   0x8004 <main+4>
+cpsr           0x13     19
+(gdb) stepi
+0x00008008      45      in armc-04.c
+(gdb) info registers
+r0             0x0      0
+r1             0x0      0
+r2             0x1008c  65676
+r3             0x10090  65680
+sp             0x800    0x800
+lr             0x0      0
+pc             0x8008   0x8008 <main+8>
+cpsr           0x13     19
+(gdb) stepi
+50      in armc-04.c
+(gdb) info registers
+r0             0x20200000       538968064
+r1             0x0      0
+r2             0x1008c  65676
+r3             0x10090  65680
+sp             0x800    0x800
+lr             0x0      0
+pc             0x800c   0x800c <main+12>
+cpsr           0x13     19
+(gdb) stepi
+45      in armc-04.c
+(gdb) info registers
+r0             0x20200000       538968064
+r1             0x0      0
+r2             0x7a11f  499999
+r3             0x10090  65680
+sp             0x800    0x800
+lr             0x0      0
+pc             0x8010   0x8010 <main+16>
+cpsr           0x13     19
+(gdb) stepi
+50      in armc-04.c
+(gdb) info registers
+r0             0x20200000       538968064
+r1             0x93939393       2475922323
+r2             0x7a11f  499999
+r3             0x10090  65680
+sp             0x800    0x800
+lr             0x0      0
+pc             0x8014   0x8014 <main+20>
+cpsr           0x13     19
+(gdb) stepi
+45      in armc-04.c
+(gdb) info registers
+r0             0x20200000       538968064
+r1             0x93939393       2475922323
+r2             0x7a11f  499999
+r3             0x10090  65680
+sp             0x800    0x800
+lr             0x0      0
+pc             0x8018   0x8018 <main+24>
+cpsr           0x13     19
+(gdb) stepi
+0x0000801c      45      in armc-04.c
+(gdb) info registers
+r0             0x20200000       538968064
+r1             0x93979393       2476184467
+r2             0x7a11f  499999
+r3             0x10090  65680
+sp             0x800    0x800
+lr             0x0      0
+pc             0x801c   0x801c <main+28>
+cpsr           0x13     19
+(gdb)
+```
+
+现在，让我们做一个实验。我之前把0x1008c（变量gpio的地址）分解为0x8000 + 0x808c是有原因的：
+
+## part-2/armc05.c
+
+```c
+
+#include "rpi-gpio.h"
+
+/** GPIO Register set */
+volatile unsigned int* gpio = (unsigned int*)GPIO_BASE;
+
+/** Simple loop variable */
+volatile unsigned int tim;
+
+/** Main function - we'll never return from here */
+int main(void) __attribute__((naked));
+int main(void)
+{
+    /* Write 1 to the GPIO16 init nibble in the Function Select 1 GPIO
+       peripheral register to enable GPIO16 as an output */
+    gpio[LED_GPFSEL] |= (1 << LED_GPFBIT);
+
+    /* Never exit as there is no OS to exit to! */
+    while(1)
+    {
+        for(tim = 0; tim < 500000; tim++)
+            ;
+
+        /* Set the LED GPIO pin low ( Turn OK LED on for original Pi, and off
+           for plus models )*/
+        gpio[LED_GPCLR] = (1 << LED_GPIO_BIT);
+
+        for(tim = 0; tim < 500000; tim++)
+            ;
+
+        /* Set the LED GPIO pin high ( Turn OK LED off for original Pi, and on
+           for plus models )*/
+        gpio[LED_GPSET] = (1 << LED_GPIO_BIT);
+
+        for(tim = 0; tim < 500000; tim++)
+            ;
+
+        /* Set the LED GPIO pin low ( Turn OK LED on for original Pi, and off
+           for plus models )*/
+        gpio[LED_GPCLR] = (1 << LED_GPIO_BIT);
+    }
+}
+```
+
+armc-05.c相较于armc-04.c，只是稍微加了代码。用nm看一看就会发现，增加代码后，`__data_start`段的首地址比之前往后了，而且数量正好和我们增加的代码相同。
+
+```
+C:\Users\Brian\Documents\GitHub\arm-tutorial-rpi\part-2\armc-05>arm-none-eabi-nm
+ kernel.elf
+000100c0 A __bss_end__
+000100bc A __bss_start
+000100bc A __bss_start__
+000100b8 D __data_start
+000100c0 A __end__
+000100c0 A _bss_end__
+000100bc A _edata
+000100c0 A _end
+00080000 N _stack
+         U _start
+000100b8 D gpio
+00008000 T main
+000100bc B tim
+```
 
