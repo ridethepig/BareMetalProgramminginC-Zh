@@ -367,3 +367,35 @@ C:\Users\Brian\Documents\GitHub\arm-tutorial-rpi\part-2\armc-05>arm-none-eabi-nm
 000100bc B tim
 ```
 
+如果我们回头看上面最初的反汇编输出，我们看到地址0x8c(0x1008c -(0x8000 * 2))是继code段之后的常量数据之后的下一个可用内存地址。
+
+我希望你们能跟得上。我们确实看到了linker脚本中的一个“bug”：这种偏移是不必要的。偏移量是正确的是因为当我们在RAM中加载映像时数据确实是会加上0x8000，这是引导加载器将要放置映像的地方，但有些东西将data段与常量数据分隔开了。
+
+加上一个verbose选项就可以知道linker用的是什么脚本：
+
+```
+For RPI1 compilation:
+
+    arm-none-eabi-gcc -O2 \
+        -mfpu=vfp \
+        -mfloat-abi=hard \
+        -march=armv6zk \
+        -mtune=arm1176jzf-s \
+        -nostartfiles -g \
+        -Wl,-verbose armc-5.c -o kernel.elf
+```
+
+真如你所见：
+
+```
+GNU ld (GNU Tools for ARM Embedded Processors) 2.24.0.20141128
+  Supported emulations:
+   armelf
+using internal linker script:
+==================================================
+```
+
+LD正在使用内部链接脚本。
+这意味着它正在使用的linker脚本被编译成ld可执行文件。这意味着我们不能编辑链接器脚本。但是链接器可以使用我们可以提供的另一个链接器脚本。我只是从我们刚刚生成的LD的详细输出中获取了默认链接脚本的副本。你可以把它命名为rpi.x。现在我们可以让链接器指向这个脚本。
+
+## part-2/armc-06.c
