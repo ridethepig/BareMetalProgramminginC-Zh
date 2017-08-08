@@ -16,6 +16,7 @@
 我尝试了4.9版本的，但几个样例过不了（OI惯用语），它生成了错误的代码，用[4.7](https://launchpad.net/gcc-arm-embedded/4.7/4.7-2013-q3-update)的就没有这个问题了。[eLinux page](http://elinux.org/RPi_Software#ARM)给出了一个最好的编译选项：
 
     -Ofast -mfpu=vfp -mfloat-abi=hard -march=armv6zk -mtune=arm1176jzf-s
+`不过，译者在测试的时候用的是debian软件源里的gcc-arm-none-eabi这个软件包，gcc版本5.4.1，好像没问题`
 
 注意一下，-Ofast选项可能会出现一些不必要的麻烦，所以我建议使用更为传统的 -O2 选项。其他标志只是告诉GCC我们使用什么类型的浮点单元，告诉它去产生硬浮点代码（GCC可能会创建软件浮点支持），并告诉GCC ARM处理器的体系结构，来产生最佳的和兼容的汇编和机器码。
 
